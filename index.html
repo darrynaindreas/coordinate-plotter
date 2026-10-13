@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Darryn Coordinate Studio — v1.3</title>
+<title>Darryn Coordinate Studio — v1.4</title>
 <style>
 :root{font-family:Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",Arial,sans-serif;color:#18263d;background:#f1f5fa;font-synthesis:none}
 *{box-sizing:border-box}
@@ -367,6 +367,40 @@ tr.selected{background:#eef5ff}
  #printSheet svg { width:100%!important; height:100%!important; }
 }
 
+</style>
+<style id="print-one-page-fix">
+/* v1.4: A fixed printSheet repeats on each page in some browser printer previews.
+   Keep the printed drawing in normal document flow and just under A4 page bounds.
+   This prevents fractional-pixel pagination and fixed-element repetition. */
+@media print {
+  html, body, body.rw-app {
+    width:auto!important; height:auto!important; min-height:0!important;
+    margin:0!important; padding:0!important; overflow:visible!important;
+    background:#fff!important;
+  }
+  body.rw-app .app, body.rw-app #toast, body.rw-app .rw-skip { display:none!important; }
+  body.rw-app #printSheet {
+    display:block!important;
+    position:static!important; inset:auto!important;
+    width:var(--print-safe-width,296mm)!important;
+    height:var(--print-safe-height,209mm)!important;
+    min-width:0!important; min-height:0!important;
+    max-width:100%!important;
+    margin:0!important; padding:0!important;
+    overflow:hidden!important;
+    break-before:avoid!important; break-after:avoid!important;
+    break-inside:avoid!important;
+    page-break-before:avoid!important; page-break-after:avoid!important;
+    page-break-inside:avoid!important;
+    background:#fff!important;
+  }
+  body.rw-app #printSheet svg {
+    display:block!important;
+    width:100%!important; height:100%!important;
+    max-width:100%!important;
+    max-height:100%!important;
+  }
+}
 </style>
 <style id="printPageStyle"></style>
 </head>
@@ -1121,6 +1155,10 @@ function printPDF(){
  if(!validateExport())return;
  $('printSheet').innerHTML=makeDocumentSVG();
  const o=s.settings.orientation;
+ // Allow 1 mm of safe clearance to avoid a second page from print rounding.
+ const landscape=o==='landscape';
+ $('printSheet').style.setProperty('--print-safe-width',landscape?'296mm':'209mm');
+ $('printSheet').style.setProperty('--print-safe-height',landscape?'209mm':'296mm');
  $('printPageStyle').textContent=`@media print{@page{size:A4 ${o};margin:0}}`;
  requestAnimationFrame(()=>window.print());
 }
