@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Darryn Coordinate Studio — v1.4</title>
+<title>Darryn Coordinate Studio — v1.5</title>
 <style>
 :root{font-family:Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",Arial,sans-serif;color:#18263d;background:#f1f5fa;font-synthesis:none}
 *{box-sizing:border-box}
@@ -426,11 +426,13 @@ tr.selected{background:#eef5ff}
     <div class="set-grid" style="margin-top:11px">
       <div><label class="field-label" for="orientation">A4 orientation</label><select class="select rw-select" id="orientation"><option value="landscape">Landscape</option><option value="portrait">Portrait</option></select></div>
       <div><label class="field-label" for="units">Coordinate unit</label><select class="select rw-select" id="units"><option value="mm">Millimeters (mm)</option><option value="cm">Centimeters (cm)</option><option value="m">Meters (m)</option><option value="unit">Generic units</option></select></div>
-      <div><label class="field-label" for="gridSpacing">Grid step (units)</label><input class="text-input rw-input" type="number" min="0.001" step="any" id="gridSpacing" value="1"></div>
-      <div><label class="field-label" for="printScale">Print scale</label><select class="select rw-select" id="printScale"><option value="fit">Fit drawing to A4</option><option value="actual">Actual size (1:1)</option></select></div>
+      <div><label class="field-label" for="gridSpacingX">X grid step (units)</label><input class="text-input rw-input" type="number" min="0.001" step="any" id="gridSpacingX" value="2"></div>
+      <div><label class="field-label" for="gridSpacingY">Y grid step (units)</label><input class="text-input rw-input" type="number" min="0.001" step="any" id="gridSpacingY" value="1"></div>
+      <div style="grid-column:1 / -1" class="hint">Vertical grid lines use the X step; horizontal grid lines use the Y step.</div>
+      <div style="grid-column:1 / -1"><label class="field-label" for="printScale">Print scale</label><select class="select rw-select" id="printScale"><option value="fit">Fit drawing to A4</option><option value="actual">Actual size (1:1)</option></select></div>
     </div>
     <div class="checks">
-      <label class="checkbox"><input type="checkbox" id="showGrid" checked>Square grid</label>
+      <label class="checkbox"><input type="checkbox" id="showGrid" checked>Show grid</label>
       <label class="checkbox"><input type="checkbox" id="showAxes" checked>X / Y axes</label>
       <label class="checkbox"><input type="checkbox" id="showLabels" checked>Point labels</label>
       <label class="checkbox"><input type="checkbox" id="showCoords">Show coordinates</label>
@@ -525,7 +527,7 @@ const pointOk = p => p && Number.isFinite(p.x) && Number.isFinite(p.y);
 const samplePoints = () => [{"id":"P1","x":-5,"y":7,"type":"Normal"},{"id":"P2","x":-3,"y":-5,"type":"Normal"},{"id":"P3","x":-2,"y":-8,"type":"Normal"},{"id":"P4","x":-1,"y":-9,"type":"MIN"},{"id":"P5","x":2,"y":0,"type":"Normal"},{"id":"P6","x":3,"y":7,"type":"Normal"}];
 const defaults = () => ({
   name:'My Coordinate Drawing',
-  settings:{orientation:'landscape',unit:'mm',grid:1,printScale:'fit',showGrid:true,showAxes:true,showLabels:true,showCoords:false,showAxisNumbers:true},
+  settings:{orientation:'landscape',unit:'mm',gridX:2,gridY:1,printScale:'fit',showGrid:true,showAxes:true,showLabels:true,showCoords:false,showAxisNumbers:true},
   points:samplePoints(),overrides:{}
 });
 let s=defaults();
@@ -554,6 +556,17 @@ function cleanedPoints(points){
        (String(p.type).toUpperCase()==='NORMAL'?'Normal':String(p.type).toUpperCase()):'Normal'
  }));
 }
+function migrateSettings(old={}){
+ const base=defaults().settings;
+ const value=old&&typeof old==='object'?old:{};
+ const previous=Number(value.grid);
+ const legacy=Number.isFinite(previous)&&previous>0?previous:undefined;
+ const out={...base,...value};
+ if(value.gridX===undefined)out.gridX=legacy??base.gridX;
+ if(value.gridY===undefined)out.gridY=legacy??base.gridY;
+ delete out.grid;
+ return out;
+}
 function loadSaved(){
  try{
   const raw=localStorage.getItem('darryn-coordinate-studio-v1-3');
@@ -561,14 +574,14 @@ function loadSaved(){
   const o=JSON.parse(raw);
   if(!o || !Array.isArray(o.points))return;
   s={name: String(o.name||'My Coordinate Drawing').slice(0,90),
-     settings:{...defaults().settings,...(o.settings||{})},
+     settings:migrateSettings(o.settings),
      points:cleanedPoints(o.points),
      overrides:typeof o.overrides==='object'&&o.overrides ? o.overrides : {}};
  }catch(e){s=defaults();}
 }
 function renderForm(){
  $('projectName').value=s.name;
- for(const [key,id] of [['orientation','orientation'],['unit','units'],['grid','gridSpacing'],['printScale','printScale']]){
+ for(const [key,id] of [['orientation','orientation'],['unit','units'],['gridX','gridSpacingX'],['gridY','gridSpacingY'],['printScale','printScale']]){
   $(id).value=s.settings[key];
  }
  for(const key of ['showGrid','showAxes','showLabels','showCoords','showAxisNumbers'])$(key).checked=!!s.settings[key];
@@ -657,7 +670,7 @@ function controls(i){
 function segWarnings(){
  const errors=[],warnings=[];
  if(s.points.length<2)warnings.push('Add at least two coordinates to draw a connection.');
- if(!(Number(s.settings.grid)>0))errors.push('Grid step must be greater than zero.');
+ for(const axis of ['X','Y'])if(!(Number(s.settings['grid'+axis])>0))errors.push(`${axis} grid step must be greater than zero.`);
  for(let i=0;i<s.points.length;i++){
   const p=s.points[i],pr=s.points[i-1],nx=s.points[i+1];
   if(!pointOk(p))errors.push(`${p.id||'Point '+(i+1)} has an invalid X or Y value.`);
@@ -716,23 +729,34 @@ function renderInspector(){
 function size(){const r=$('graph').getBoundingClientRect();return {w:Math.max(250,r.width||800),h:Math.max(210,r.height||460)};}
 function screen(x,y,W,H){return {x:W/2+(x-view.cx)*view.scale,y:H/2-(y-view.cy)*view.scale};}
 function world(x,y,W,H){return {x:(x-W/2)/view.scale+view.cx,y:(H/2-y)/view.scale+view.cy};}
+function onScreenGridStep(raw){
+ let step=Number(raw);
+ if(!Number.isFinite(step)||step<=0)step=1;
+ // Reduce visual clutter only by skipping full intervals, never divide the user step.
+ while(step*view.scale<16)step*=2;
+ return step;
+}
+function onPaperGridStep(raw,scale){
+ let step=Number(raw);
+ if(!Number.isFinite(step)||step<=0)step=1;
+ // Keep grid legible on small-scale printouts while retaining exact multiples.
+ while(step*scale<2.5)step*=2;
+ return step;
+}
 function lineGrid(W,H){
  const parts=[];
  parts.push(`<rect width="${W}" height="${H}" fill="#ffffff"/>`);
- let spacing=Number(s.settings.grid);
- if(!Number.isFinite(spacing)||spacing<=0)spacing=1;
- let major=spacing;
- while(major*view.scale<16)major*=2;
- while(major*view.scale>130)major/=2;
+ const majorX=onScreenGridStep(s.settings.gridX);
+ const majorY=onScreenGridStep(s.settings.gridY);
  const minX=world(0,0,W,H).x,maxX=world(W,0,W,H).x;
  const minY=world(0,H,W,H).y,maxY=world(0,0,W,H).y;
  if(s.settings.showGrid){
-  for(let n=Math.ceil(minX/major);n<=Math.floor(maxX/major)&&n<=Math.ceil(minX/major)+1000;n++){
-   const x=screen(n*major,0,W,H).x;
+  for(let n=Math.ceil(minX/majorX);n<=Math.floor(maxX/majorX)&&n<=Math.ceil(minX/majorX)+1000;n++){
+   const x=screen(n*majorX,0,W,H).x;
    parts.push(`<line x1="${x}" y1="0" x2="${x}" y2="${H}" stroke="#e8eef6" stroke-width="1"/>`);
   }
-  for(let n=Math.ceil(minY/major);n<=Math.floor(maxY/major)&&n<=Math.ceil(minY/major)+1000;n++){
-   const y=screen(0,n*major,W,H).y;
+  for(let n=Math.ceil(minY/majorY);n<=Math.floor(maxY/majorY)&&n<=Math.ceil(minY/majorY)+1000;n++){
+   const y=screen(0,n*majorY,W,H).y;
    parts.push(`<line x1="0" y1="${y}" x2="${W}" y2="${y}" stroke="#e8eef6" stroke-width="1"/>`);
   }
  }
@@ -741,15 +765,15 @@ function lineGrid(W,H){
   parts.push(`<line x1="0" x2="${W}" y1="${axY}" y2="${axY}" stroke="#9daec4" stroke-width="1.4"/>`);
   parts.push(`<line x1="${axX}" x2="${axX}" y1="0" y2="${H}" stroke="#9daec4" stroke-width="1.4"/>`);
   if(s.settings.showAxisNumbers && axY>-10&&axY<H+10){
-   for(let n=Math.ceil(minX/major);n<=Math.floor(maxX/major)&&n<=Math.ceil(minX/major)+1000;n++){
-     const x=screen(n*major,0,W,H).x;if(Math.abs(x-axX)<8)continue;
-     parts.push(`<text x="${x+2}" y="${clamp(axY+13,13,H-5)}" fill="#8999ad" font-size="10">${fmt(n*major)}</text>`);
+   for(let n=Math.ceil(minX/majorX);n<=Math.floor(maxX/majorX)&&n<=Math.ceil(minX/majorX)+1000;n++){
+     const x=screen(n*majorX,0,W,H).x;if(Math.abs(x-axX)<8)continue;
+     parts.push(`<text x="${x+2}" y="${clamp(axY+13,13,H-5)}" fill="#8999ad" font-size="10">${fmt(n*majorX)}</text>`);
    }
   }
   if(s.settings.showAxisNumbers && axX>-10&&axX<W+10){
-   for(let n=Math.ceil(minY/major);n<=Math.floor(maxY/major)&&n<=Math.ceil(minY/major)+1000;n++){
-     const y=screen(0,n*major,W,H).y;if(Math.abs(y-axY)<8)continue;
-     parts.push(`<text x="${clamp(axX+5,5,W-30)}" y="${y-3}" fill="#8999ad" font-size="10">${fmt(n*major)}</text>`);
+   for(let n=Math.ceil(minY/majorY);n<=Math.floor(maxY/majorY)&&n<=Math.ceil(minY/majorY)+1000;n++){
+     const y=screen(0,n*majorY,W,H).y;if(Math.abs(y-axY)<8)continue;
+     parts.push(`<text x="${clamp(axX+5,5,W-30)}" y="${y-3}" fill="#8999ad" font-size="10">${fmt(n*majorY)}</text>`);
    }
   }
   parts.push(`<text x="${clamp(axX+6,6,W-12)}" y="14" fill="#627a97" font-size="11">Y</text>`);
@@ -958,11 +982,11 @@ $('generateBtn').addEventListener('click',()=>{refresh();fit();notify('Drawing g
 $('undoBtn').addEventListener('click',()=>{if(!history.length)return;future.push(clone(s));s=history.pop();selectedKey=null;renderForm();refresh();delaySave();fit();});
 $('redoBtn').addEventListener('click',()=>{if(!future.length)return;history.push(clone(s));s=future.pop();selectedKey=null;renderForm();refresh();delaySave();fit();});
 $('projectName').addEventListener('change',e=>{record();s.name=e.target.value||'Untitled drawing';delaySave();});
-for(const [key,id] of [['orientation','orientation'],['unit','units'],['grid','gridSpacing'],['printScale','printScale']]){
+for(const [key,id] of [['orientation','orientation'],['unit','units'],['gridX','gridSpacingX'],['gridY','gridSpacingY'],['printScale','printScale']]){
  $(id).addEventListener('change',e=>{
    record();
-   s.settings[key]=key==='grid'?Number(e.target.value):e.target.value;
-   if(key==='grid'&&!(s.settings.grid>0)){s.settings.grid=1;e.target.value=1;notify('Grid step must be positive.');}
+   s.settings[key]=key==='gridX'||key==='gridY'?Number(e.target.value):e.target.value;
+   if((key==='gridX'||key==='gridY')&&!(s.settings[key]>0)){s.settings[key]=key==='gridX'?2:1;e.target.value=s.settings[key];notify('Grid step must be positive.');}
    delaySave();refresh();
  });
 }
@@ -985,7 +1009,7 @@ function download(name,contents,mime){
  a.href=url;a.download=name;document.body.appendChild(a);a.click();a.remove();
  setTimeout(()=>URL.revokeObjectURL(url),1000);
 }
-$('saveBtn').addEventListener('click',()=>download(safeFileName()+'.json',JSON.stringify({...s,version:1},null,2),'application/json;charset=utf-8'));
+$('saveBtn').addEventListener('click',()=>download(safeFileName()+'.json',JSON.stringify({...s,version:2},null,2),'application/json;charset=utf-8'));
 function parseCsv(txt){
  const rows=[];let cell='',row=[],quote=false;
  for(let i=0;i<txt.length;i++){
@@ -1033,7 +1057,7 @@ $('fileJson').addEventListener('change',async e=>{
   const data=JSON.parse(await f.text());
   if(!Array.isArray(data.points))throw Error('No points array found.');
   record();
-  s={name:String(data.name||'Imported Drawing'),settings:{...defaults().settings,...data.settings},
+  s={name:String(data.name||'Imported Drawing'),settings:migrateSettings(data.settings),
      points:cleanedPoints(data.points),overrides:data.overrides&&typeof data.overrides==='object'?data.overrides:{}};
   selectedKey=null;renderForm();refresh();fit();delaySave();notify('Project opened.');
  }catch(err){alert('Cannot open project: '+err.message);}
@@ -1065,15 +1089,15 @@ function makeDocumentSVG(){
  chunks.push(`<rect x="${left}" y="${top}" width="${W}" height="${H}" fill="#fff" stroke="#cbd5e1" stroke-width=".25"/>`);
  chunks.push('<g clip-path="url(#paperClip)">');
  const lX=cx-(W/2)/sc,rX=cx+(W/2)/sc,bY=cy-(H/2)/sc,tY=cy+(H/2)/sc;
- let step=Math.max(.000001,Number(s.settings.grid)||1);
- while(step*sc<2.5)step*=2;
+ const stepX=onPaperGridStep(s.settings.gridX,sc);
+ const stepY=onPaperGridStep(s.settings.gridY,sc);
  let count=0;
  if(s.settings.showGrid){
-  for(let i=Math.ceil(lX/step);i<=Math.floor(rX/step)&&count<500;i++,count++)
-   chunks.push(`<path d="M ${px(i*step)} ${top} V ${bottom}" stroke="#e6ecf4" stroke-width=".18"/>`);
+  for(let i=Math.ceil(lX/stepX);i<=Math.floor(rX/stepX)&&count<500;i++,count++)
+   chunks.push(`<path d="M ${px(i*stepX)} ${top} V ${bottom}" stroke="#e6ecf4" stroke-width=".18"/>`);
   count=0;
-  for(let j=Math.ceil(bY/step);j<=Math.floor(tY/step)&&count<500;j++,count++)
-   chunks.push(`<path d="M ${left} ${py(j*step)} H ${right}" stroke="#e6ecf4" stroke-width=".18"/>`);
+  for(let j=Math.ceil(bY/stepY);j<=Math.floor(tY/stepY)&&count<500;j++,count++)
+   chunks.push(`<path d="M ${left} ${py(j*stepY)} H ${right}" stroke="#e6ecf4" stroke-width=".18"/>`);
  }
  if(s.settings.showAxes){
    chunks.push(`<path d="M ${left} ${py(0)} H ${right} M ${px(0)} ${top} V ${bottom}" fill="none" stroke="#8a9bad" stroke-width=".35"/>`);
@@ -1082,23 +1106,24 @@ function makeDocumentSVG(){
    // Printed SVG does not share the on-screen grid renderer; draw axis values here too.
    // Space tick numbers by their physical distance on paper to keep them readable.
    if(s.settings.showAxisNumbers!==false){
-     let tickStep=step;
-     while(tickStep*sc<7)tickStep*=2;
+     let tickStepX=stepX,tickStepY=stepY;
+     while(tickStepX*sc<7)tickStepX*=2;
+     while(tickStepY*sc<7)tickStepY*=2;
      const axisX=px(0),axisY=py(0);
      const xNumberY=clamp(axisY+4.0,top+4.5,bottom-1.5);
      const yNumberX=clamp(axisX+1.7,left+1.5,right-8);
      const tickText=(x,y,value,anchor='start')=>
        `<text x="${x}" y="${y}" text-anchor="${anchor}" font-family="Arial,sans-serif" font-size="2.7" fill="#546a83" stroke="#fff" stroke-width=".70" stroke-linejoin="round" paint-order="stroke">${esc(fmt(value))}</text>`;
-     const startX=Math.ceil(lX/tickStep),endX=Math.floor(rX/tickStep);
+     const startX=Math.ceil(lX/tickStepX),endX=Math.floor(rX/tickStepX);
      for(let i=startX;i<=endX&&i<startX+500;i++){
-       const value=i*tickStep,atX=px(value);
-       if(Math.abs(value)<tickStep*1e-5 || atX<left+3 || atX>right-3)continue;
+       const value=i*tickStepX,atX=px(value);
+       if(Math.abs(value)<tickStepX*1e-5 || atX<left+3 || atX>right-3)continue;
        chunks.push(tickText(atX,xNumberY,value,'middle'));
      }
-     const startY=Math.ceil(bY/tickStep),endY=Math.floor(tY/tickStep);
+     const startY=Math.ceil(bY/tickStepY),endY=Math.floor(tY/tickStepY);
      for(let i=startY;i<=endY&&i<startY+500;i++){
-       const value=i*tickStep,atY=py(value);
-       if(Math.abs(value)<tickStep*1e-5 || atY<top+3 || atY>bottom-1.5)continue;
+       const value=i*tickStepY,atY=py(value);
+       if(Math.abs(value)<tickStepY*1e-5 || atY<top+3 || atY>bottom-1.5)continue;
        chunks.push(tickText(yNumberX,atY-1,value));
      }
      if(axisX>=left+2&&axisX<=right-6&&axisY>=top+4&&axisY<=bottom-4){
