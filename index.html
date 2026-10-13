@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Darryn Coordinate Studio — Drawing App</title>
+<title>Darryn Coordinate Studio — v1.3</title>
 <style>
 :root{font-family:Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",Arial,sans-serif;color:#18263d;background:#f1f5fa;font-synthesis:none}
 *{box-sizing:border-box}
@@ -421,7 +421,7 @@ tr.selected{background:#eef5ff}
   <div class="section" style="margin-bottom:9px">
     <h2 class="section-title">Point types</h2>
     <div class="small" style="line-height:1.8">
-      <b>Normal</b> — straight unless next to a curve<br>
+      <b>Normal</b> — defaults to a curved connection (change in Curve inspector)<br>
       <b>C</b> — smooth curve through the point<br>
       <b>MAX</b> — local peak, horizontal tangent<br>
       <b>MIN</b> — local valley, horizontal tangent
@@ -488,14 +488,7 @@ const fmt = n => Number.isFinite(n) ? (Math.abs(n)<1e-9?'0':String(Number(n.toFi
 const clamp = (x,a,b) => Math.min(b,Math.max(a,x));
 const pkey = (p,q)=>p.id+':'+q.id;
 const pointOk = p => p && Number.isFinite(p.x) && Number.isFinite(p.y);
-const samplePoints = () => [
-  {id:'P1',x:0,y:1,type:'Normal'},
-  {id:'P2',x:2,y:2,type:'Normal'},
-  {id:'P3',x:4,y:6,type:'MAX'},
-  {id:'P4',x:6,y:3,type:'C'},
-  {id:'P5',x:8,y:1,type:'MIN'},
-  {id:'P6',x:10,y:4,type:'Normal'}
-];
+const samplePoints = () => [{"id":"P1","x":-5,"y":7,"type":"Normal"},{"id":"P2","x":-3,"y":-5,"type":"Normal"},{"id":"P3","x":-2,"y":-8,"type":"Normal"},{"id":"P4","x":-1,"y":-9,"type":"MIN"},{"id":"P5","x":2,"y":0,"type":"Normal"},{"id":"P6","x":3,"y":7,"type":"Normal"}];
 const defaults = () => ({
   name:'My Coordinate Drawing',
   settings:{orientation:'landscape',unit:'mm',grid:1,printScale:'fit',showGrid:true,showAxes:true,showLabels:true,showCoords:false,showAxisNumbers:true},
@@ -508,7 +501,7 @@ let history=[],future=[],toastTimer;
 let dirtyTimer=null;
 const clone = a => JSON.parse(JSON.stringify(a));
 function saveLocal(){
-  try{localStorage.setItem('coordinate-studio-v1',JSON.stringify(s));}catch(e){}
+  try{localStorage.setItem('darryn-coordinate-studio-v1-3',JSON.stringify(s));}catch(e){}
 }
 function delaySave(){clearTimeout(dirtyTimer);dirtyTimer=setTimeout(saveLocal,150);}
 function record(){history.push(clone(s));if(history.length>55)history.shift();future=[];updateHistory();}
@@ -529,7 +522,7 @@ function cleanedPoints(points){
 }
 function loadSaved(){
  try{
-  const raw=localStorage.getItem('coordinate-studio-v1');
+  const raw=localStorage.getItem('darryn-coordinate-studio-v1-3');
   if(!raw)return;
   const o=JSON.parse(raw);
   if(!o || !Array.isArray(o.points))return;
@@ -569,7 +562,9 @@ function selectedIndex(){return s.points.findIndex((p,i)=>i<s.points.length-1&&c
 function segmentMode(i){
  const ov=s.overrides[currentKey(i)];
  if(ov&&['line','curve'].includes(ov.kind))return ov.kind;
- return s.points[i].type==='Normal'&&s.points[i+1].type==='Normal'?'line':'curve';
+ if(ov?.kind==='auto')return s.points[i].type==='Normal'&&s.points[i+1].type==='Normal'?'line':'curve';
+ // Every new segment is curved unless user specifically selects straight or automatic.
+ return 'curve';
 }
 function tangent(i){
  const pts=s.points,p=pts[i];
@@ -662,13 +657,13 @@ function renderInspector(){
   return;
  }
  const a=s.points[ix],b=s.points[ix+1],ov=s.overrides[currentKey(ix)];
- const kind=ov?.kind||'auto',eff=segmentMode(ix);
+ const kind=ov?.kind||'curve',eff=segmentMode(ix);
  $('inspector').innerHTML=`
   <div class="segment-info"><b>${esc(a.id)} → ${esc(b.id)}</b> &nbsp; · &nbsp; ${eff==='curve'?'Curved':'Straight'}<br>(${fmt(a.x)}, ${fmt(a.y)}) → (${fmt(b.x)}, ${fmt(b.y)})</div>
   <div class="row" style="gap:8px">
    <label for="segmentKind" class="field-label" style="min-width:85px;margin:0">Connection</label>
    <select id="segmentKind" class="select rw-select" style="height:32px;min-height:32px">
-    <option value="auto" ${kind==='auto'?'selected':''}>Automatic from types</option>
+    <option value="auto" ${kind==='auto'?'selected':''}>Automatic from point types</option>
     <option value="line" ${kind==='line'?'selected':''}>Force straight line</option>
     <option value="curve" ${kind==='curve'?'selected':''}>Force curved segment</option>
    </select>
@@ -679,11 +674,10 @@ function renderInspector(){
  $('segmentKind').addEventListener('change',e=>{
   record();
   const key=currentKey(ix),old=s.overrides[key]||{};
-  if(e.target.value==='auto')delete s.overrides[key];
-  else s.overrides[key]={...old,kind:e.target.value};
+  s.overrides[key]={...old,kind:e.target.value};
   delaySave();refresh();
  });
- $('resetSegmentBtn').addEventListener('click',()=>{record();delete s.overrides[currentKey(ix)];delaySave();refresh();notify('Curve restored to automatic settings.');});
+ $('resetSegmentBtn').addEventListener('click',()=>{record();delete s.overrides[currentKey(ix)];delaySave();refresh();notify('Connection reset to the default curved segment.');});
 }
 function size(){const r=$('graph').getBoundingClientRect();return {w:Math.max(250,r.width||800),h:Math.max(210,r.height||460)};}
 function screen(x,y,W,H){return {x:W/2+(x-view.cx)*view.scale,y:H/2-(y-view.cy)*view.scale};}
@@ -942,8 +936,8 @@ for(const key of ['showGrid','showAxes','showLabels','showCoords','showAxisNumbe
  $(key).addEventListener('change',e=>{record();s.settings[key]=e.target.checked;delaySave();refresh();});
 }
 $('sampleBtn').addEventListener('click',()=>{
- if(!confirm('Replace all points and curve adjustments with the example?'))return;
- record();s.points=samplePoints();s.overrides={};selectedKey=null;renderRows();delaySave();refresh();fit();notify('Example points loaded.');
+ if(!confirm('Replace all points and curve adjustments with the built-in example.csv data?'))return;
+ record();s.points=samplePoints();s.overrides={};selectedKey=null;renderRows();delaySave();refresh();fit();notify('example.csv points loaded with curved connections.');
 });
 $('newBtn').addEventListener('click',()=>{
  if(!confirm('Create a new blank drawing? Save your current project first if needed.'))return;
